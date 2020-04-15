@@ -1,4 +1,4 @@
-package sshkey
+package cede
 
 import (
 	"fmt"
@@ -10,7 +10,8 @@ import (
 	"strings"
 )
 
-func Execute(username string) error {
+// PrintIAMKey us used to print the  public key for the given username
+func PrintIAMKey(username string) error {
 	sess := session.Must(session.NewSession())
 	iamClient := iam.New(sess)
 	listUsers, err := iamClient.ListUsers(&iam.ListUsersInput{})
@@ -59,6 +60,36 @@ func Execute(username string) error {
 	return nil
 }
 
+// PrintIAMUsers prints the permitted users in IAM
+func PrintIAMUsers() error {
+	cfg, err := config.Read(config.GetOrDefaultPath())
+	if err != nil {
+		return errors.WithMessage(err, "reading config")
+	}
+
+	// get all the users
+	var users []string
+	sess := session.Must(session.NewSession())
+	iamClient := iam.New(sess)
+	for _, group := range cfg.Groups {
+		groupInput := iam.GetGroupInput{GroupName: &group.Name}
+		groupOutput, err := iamClient.GetGroup(&groupInput)
+		if err != nil {
+			return errors.WithMessage(err, "getting iam group")
+		}
+		for _, user := range groupOutput.Users {
+			users = append(users, *user.UserName)
+		}
+	}
+
+	// print all the users
+	for _, user := range unique(users) {
+		println(user)
+	}
+
+	return nil
+}
+
 func filterAddressesByDomains(iamUsers []*iam.User, domains ...string) []string {
 	var addresses []string
 	for _, user := range iamUsers {
@@ -83,7 +114,7 @@ func firstActiveKeyId(keys []*iam.SSHPublicKeyMetadata) *string {
 func verifyUserExistsInIAM(addresses []string, username string) (string, bool) {
 	for _, address := range addresses {
 		un, _ := usernameOf(address)
-		if un == username {
+		if strings.ToLower(un) == strings.ToLower(username) {
 			return address, true
 		}
 	}
@@ -115,4 +146,16 @@ func contains(list []string, given string) bool {
 		}
 	}
 	return false
+}
+
+func unique(s []string) []string {
+	keys := make(map[string]bool)
+	var list []string
+	for _, entry := range s {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
 }
