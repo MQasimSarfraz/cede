@@ -1,0 +1,10 @@
+allowedDomains:
+ - example.com
+ - example.co
+groups:
+ - name: admin
+   superuser: true
+ - name: devops
+   superuser: true
+ - name: devs
+   superusers: false
