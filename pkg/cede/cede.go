@@ -83,7 +83,7 @@ func PrintIAMUsers() error {
 	}
 
 	// print all the users
-	println(strings.Join(users, " "))
+	fmt.Println(strings.Join(users, "\n"))
 
 	return nil
 }
