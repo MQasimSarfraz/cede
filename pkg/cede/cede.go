@@ -83,9 +83,7 @@ func PrintIAMUsers() error {
 	}
 
 	// print all the users
-	for _, user := range unique(users) {
-		println(user)
-	}
+	println(strings.Join(users, " "))
 
 	return nil
 }
