@@ -8,3 +8,5 @@ groups:
    superuser: true
  - name: devs
    superusers: false
+externalUsers:
+  - centos

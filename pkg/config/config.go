@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	AllowedDomains []string `yaml:"allowedDomains"`
+	ExternalUsers  []string `yaml:"externalUsers"`
 	Groups         []Group  `yaml:"groups"`
 }
 

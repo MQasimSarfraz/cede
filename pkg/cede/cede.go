@@ -12,15 +12,23 @@ import (
 
 // PrintIAMKey us used to print the  public key for the given username
 func PrintIAMKey(username string) error {
+	// read the config
+	cfg, err := config.Read(config.GetOrDefaultPath())
+
+	// noop for external users
+	for _, user := range cfg.ExternalUsers {
+		if user == username {
+			return nil
+		}
+	}
+
+	// fetch users from IAM
 	sess := session.Must(session.NewSession())
 	iamClient := iam.New(sess)
 	listUsers, err := iamClient.ListUsers(&iam.ListUsersInput{})
 	if err != nil {
 		return errors.WithMessage(err, "getting users")
 	}
-
-	// read the config
-	cfg, err := config.Read(config.GetOrDefaultPath())
 
 	// filter the users based on allowed domains
 	userAddresses := filterAddressesByDomains(listUsers.Users, cfg.AllowedDomains...)
