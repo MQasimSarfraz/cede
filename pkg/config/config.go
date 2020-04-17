@@ -5,12 +5,14 @@ import (
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
+	"time"
 )
 
 type Config struct {
-	AllowedDomains []string `yaml:"allowedDomains"`
-	ExternalUsers  []string `yaml:"externalUsers"`
-	Groups         []Group  `yaml:"groups"`
+	AllowedDomains []string      `yaml:"allowedDomains"`
+	ExternalUsers  []string      `yaml:"externalUsers"`
+	CacheLifeTime  time.Duration `yaml:"cacheLifeTime"`
+	Groups         []Group       `yaml:"groups"`
 }
 
 type Group struct {

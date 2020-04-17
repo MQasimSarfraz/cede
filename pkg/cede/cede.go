@@ -6,14 +6,31 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/iam"
+	"github.com/peterbourgon/diskv"
 	"github.com/pkg/errors"
+	"os"
+	"path"
 	"strings"
+	"time"
 )
+
+const CachePath = "/tmp/cede-cache"
+
+var ErrKeyNotFound = errors.New("key not found")
+
+var cache = diskv.New(diskv.Options{
+	BasePath:     CachePath,
+	Transform:    func(s string) []string { return []string{} },
+	CacheSizeMax: 64 * 1024,
+})
 
 // PrintIAMKey us used to print the  public key for the given username
 func PrintIAMKey(username string) error {
 	// read the config
 	cfg, err := config.Read(config.GetOrDefaultPath())
+	if err != nil {
+		return errors.WithMessage(err, "reading config")
+	}
 
 	// noop for external users
 	for _, user := range cfg.ExternalUsers {
@@ -22,50 +39,19 @@ func PrintIAMKey(username string) error {
 		}
 	}
 
-	// fetch users from IAM
-	sess := session.Must(session.NewSession())
-	iamClient := iam.New(sess)
-	listUsers, err := iamClient.ListUsers(&iam.ListUsersInput{})
-	if err != nil {
-		return errors.WithMessage(err, "getting users")
+	// check if key exists in cache
+	if key, ok := keyFromCache(username, cfg.CacheLifeTime); ok {
+		fmt.Println(key)
+		return nil
 	}
 
-	// filter the users based on allowed domains
-	userAddresses := filterAddressesByDomains(listUsers.Users, cfg.AllowedDomains...)
-
-	// make sure given username exists in IAM
-	uAddress, ok := verifyUserExistsInIAM(userAddresses, username)
-	if !ok {
-		return errors.Errorf("user=%s not present in IAM", username)
+	// fall back to fetch from IAM
+	if key, kErr := keyFromIAM(username, cfg); kErr == nil {
+		fmt.Println(key)
+		return nil
 	}
 
-	// get the key id for user
-	listKeysInput := &iam.ListSSHPublicKeysInput{UserName: &uAddress}
-	listKeysOutput, err := iamClient.ListSSHPublicKeys(listKeysInput)
-	if err != nil {
-		return errors.WithMessage(err, "getting key id")
-	}
-
-	// get the first active key for user
-	keyId := firstActiveKeyId(listKeysOutput.SSHPublicKeys)
-	if keyId == nil {
-		return errors.Errorf("no key for user=%s", username)
-	}
-
-	// get and print the key content
-	getKeysInput := &iam.GetSSHPublicKeyInput{
-		Encoding:       aws.String(iam.EncodingTypeSsh),
-		SSHPublicKeyId: keyId,
-		UserName:       &uAddress,
-	}
-
-	getKeysOutput, err := iamClient.GetSSHPublicKey(getKeysInput)
-	if err != nil {
-		return errors.WithMessage(err, "getting key")
-	}
-	fmt.Print(*getKeysOutput.SSHPublicKey.SSHPublicKeyBody)
-
-	return nil
+	return ErrKeyNotFound
 }
 
 // PrintIAMUsers prints the permitted users in IAM
@@ -94,6 +80,86 @@ func PrintIAMUsers() error {
 	fmt.Println(strings.Join(users, "\n"))
 
 	return nil
+}
+
+func keyFromIAM(username string, cfg *config.Config) (string, error) {
+	// fetch users from IAM
+	sess := session.Must(session.NewSession())
+	iamClient := iam.New(sess)
+	listUsers, err := iamClient.ListUsers(&iam.ListUsersInput{})
+	if err != nil {
+		return "", errors.WithMessage(err, "getting users")
+	}
+
+	// filter the users based on allowed domains
+	userAddresses := filterAddressesByDomains(listUsers.Users, cfg.AllowedDomains...)
+
+	// make sure given username exists in IAM
+	uAddress, ok := verifyUserExistsInIAM(userAddresses, username)
+	if !ok {
+		return "", errors.Errorf("user=%s not present in IAM", username)
+	}
+
+	// get the key id for user
+	listKeysInput := &iam.ListSSHPublicKeysInput{UserName: &uAddress}
+	listKeysOutput, err := iamClient.ListSSHPublicKeys(listKeysInput)
+	if err != nil {
+		return "", errors.WithMessage(err, "getting key id")
+	}
+
+	// get the first active key for user
+	keyId := firstActiveKeyId(listKeysOutput.SSHPublicKeys)
+	if keyId == nil {
+		return "", errors.Errorf("no key for user=%s", username)
+	}
+
+	// get and print the key content
+	getKeysInput := &iam.GetSSHPublicKeyInput{
+		Encoding:       aws.String(iam.EncodingTypeSsh),
+		SSHPublicKeyId: keyId,
+		UserName:       &uAddress,
+	}
+
+	getKeysOutput, err := iamClient.GetSSHPublicKey(getKeysInput)
+	if err != nil {
+		return "", errors.WithMessage(err, "getting key")
+	}
+
+	// add the key to cache as well
+	err = cache.Write(username, []byte(*getKeysOutput.SSHPublicKey.SSHPublicKeyBody))
+	if err != nil {
+		return "", errors.WithMessage(err, "writing to cache")
+	}
+
+	return *getKeysOutput.SSHPublicKey.SSHPublicKeyBody, nil
+}
+
+func keyFromCache(username string, cacheLifeTime time.Duration) (string, bool) {
+	if cache.Has(username) {
+		// if cache has expired return
+		if expiredCache(username, cacheLifeTime) {
+			return "", false
+		}
+
+		// read from cache
+		key, err := cache.Read(username)
+		if err != nil {
+			cache.Erase(username)
+			return "", false
+		}
+
+		// read cached response
+		return string(key), true
+	}
+	return "", false
+}
+
+func expiredCache(key string, cacheLifeTime time.Duration) bool {
+	info, err := os.Stat(path.Join(CachePath, key))
+	if err != nil {
+		return false
+	}
+	return info.ModTime().Add(cacheLifeTime * time.Second).Before(time.Now())
 }
 
 func filterAddressesByDomains(iamUsers []*iam.User, domains ...string) []string {

@@ -10,3 +10,4 @@ groups:
    superusers: false
 externalUsers:
   - centos
+cacheLifeTime: 432000000
