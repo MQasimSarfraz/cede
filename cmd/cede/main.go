@@ -8,11 +8,12 @@ import (
 )
 
 const (
-	GetKey   = "get-key"
-	GetUsers = "get-users"
+	GetKey      = "get-key"
+	GetUsers    = "get-users"
+	ImportUsers = "import-users"
 )
 
-var commands = []string{GetKey, GetUsers}
+var commands = []string{GetKey, GetUsers, ImportUsers}
 
 func main() {
 	args := os.Args
@@ -24,6 +25,8 @@ func main() {
 		err = cede.PrintIAMKey(args[2])
 	case GetUsers:
 		err = cede.PrintIAMUsers()
+	case ImportUsers:
+		err = cede.ImportUserFromIAM()
 	}
 	if err != nil {
 		logAndExit(err.Error(), 1)

@@ -24,7 +24,7 @@ var cache = diskv.New(diskv.Options{
 	CacheSizeMax: 64 * 1024,
 })
 
-// PrintIAMKey us used to print the  public key for the given username
+// PrintIAMKey is used to print the  public key for the given username
 func PrintIAMKey(username string) error {
 	// read the config
 	cfg, err := config.Read(config.GetOrDefaultPath())
@@ -54,7 +54,7 @@ func PrintIAMKey(username string) error {
 	return ErrKeyNotFound
 }
 
-// PrintIAMUsers prints the permitted users in IAM
+// PrintIAMUsers prints the permitted
 func PrintIAMUsers() error {
 	cfg, err := config.Read(config.GetOrDefaultPath())
 	if err != nil {
@@ -62,24 +62,20 @@ func PrintIAMUsers() error {
 	}
 
 	// get all the users
-	var users []string
-	sess := session.Must(session.NewSession())
-	iamClient := iam.New(sess)
-	for _, group := range cfg.Groups {
-		groupInput := iam.GetGroupInput{GroupName: &group.Name}
-		groupOutput, err := iamClient.GetGroup(&groupInput)
-		if err != nil {
-			return errors.WithMessage(err, "getting iam group")
-		}
-		for _, user := range groupOutput.Users {
-			users = append(users, *user.UserName)
-		}
+	users, err := usersFromIAM(cfg)
+	if err != nil {
+		return errors.WithMessage(err, "getting users from iam")
 	}
 
 	// print all the users
 	fmt.Println(strings.Join(users, "\n"))
 
 	return nil
+}
+
+// Imports the permitted users in linux
+func ImportUserFromIAM() error {
+	panic("Implement me")
 }
 
 func keyFromIAM(username string, cfg *config.Config) (string, error) {
@@ -152,6 +148,23 @@ func keyFromCache(username string, cacheLifeTime time.Duration) (string, bool) {
 		return string(key), true
 	}
 	return "", false
+}
+
+func usersFromIAM(cfg *config.Config) ([]string, error) {
+	var users []string
+	sess := session.Must(session.NewSession())
+	iamClient := iam.New(sess)
+	for _, group := range cfg.Groups {
+		groupInput := iam.GetGroupInput{GroupName: &group.Name}
+		groupOutput, err := iamClient.GetGroup(&groupInput)
+		if err != nil {
+			return users, errors.WithMessage(err, "getting iam group")
+		}
+		for _, user := range groupOutput.Users {
+			users = append(users, *user.UserName)
+		}
+	}
+	return users, nil
 }
 
 func expiredCache(key string, cacheLifeTime time.Duration) bool {
